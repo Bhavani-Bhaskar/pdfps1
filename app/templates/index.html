@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Processing System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PDF Processing System</h1>
+            <p>Drag and drop PDF files or click to upload</p>
+        </header>
+
+        <main>
+            <!-- Upload Area -->
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="upload-icon">📄</div>
+                    <p class="drop-text">Drag & drop PDF files here</p>
+                    <p class="or-text">or</p>
+                    <button id="browse-btn" class="browse-button">Browse Files</button>
+                    <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
+                </div>
+                <div class="drop-zone-overlay" id="drop-overlay">
+                    <div class="overlay-content">
+                        <div class="overlay-icon">⬇️</div>
+                        <p>Drop files here to upload</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Progress -->
+            <div id="upload-progress" class="upload-progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <p id="progress-text">Uploading...</p>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="status-messages" class="status-messages"></div>
+
+            <!-- Output Files Section -->
+            <section class="output-section">
+                <h2>Processed Files</h2>
+                <div class="controls">
+                    <button id="refresh-btn" class="refresh-button">Refresh List</button>
+                </div>
+                <div id="output-list" class="output-list">
+                    <p class="loading">Loading processed files...</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dragdrop.js') }}"></script>
+</body>
+</html>
