@@ -1,5 +1,6 @@
 import PyPDF2
 import fitz  # PyMuPDF
+import pymupdf
 import re
 from typing import Dict, List, Any
 
@@ -9,7 +10,7 @@ def extract_text_and_structure(pdf_path: str) -> Dict[str, Any]:
     """
     try:
         # Use PyMuPDF for better text extraction
-        doc = fitz.open(pdf_path)
+        doc = pymupdf.open(pdf_path)
         
         full_text = ""
         headings = []
