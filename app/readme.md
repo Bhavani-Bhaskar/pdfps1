@@ -1,4 +1,4 @@
-project-root/
+app/
 ├── main.py                    # Enhanced Flask application with new endpoints
 ├── validators.py              # PDF validation functions (unchanged)
 ├── templates/                 # HTML templates for web interface
@@ -18,3 +18,15 @@ project-root/
 ├── uploads/                  # New folder for uploaded PDFs
 ├── output/                   # Generated text files
 └── requirements.txt          # Dependencies
+
+format:
+ 
+Documentation (first)
+
+Document Metadata (second)
+
+Page-wise Content (text, images, tables per page)
+
+OCR Extracted Text (after page content)
+
+Processing Summary (final)
