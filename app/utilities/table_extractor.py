@@ -1,218 +1,174 @@
-import camelot
-import pandas as pd
-from typing import List, Dict, Any
+# utilities/table_extractor.py (Enhanced for research papers)
+
 import os
+import logging
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def extract_tables(pdf_path: str) -> List[Dict[str, Any]]:
+import camelot
+import pdfplumber
+import pandas as pd
+
+# Suppress warnings at module level
+warnings.filterwarnings("ignore", category=UserWarning, module="camelot")
+warnings.filterwarnings("ignore", message=".*does not lie in column range.*")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def extract_tables(pdf_path: str):
     """
-    Extract tables from PDF using Camelot
+    Enhanced table extraction optimized for research papers
     """
-    tables_info = []
+    if not os.path.isfile(pdf_path):
+        logger.error(f"File not found: {pdf_path}")
+        return [{'error': 'File not found'}]
     
     try:
-        # Extract tables using Camelot
-        tables = camelot.read_pdf(pdf_path, pages='all')
-        
-        for i, table in enumerate(tables):
-            try:
-                # Get table properties
-                parsing_report = table.parsing_report
-                
-                # Convert to pandas DataFrame
-                df = table.df
-                
-                # Get table content as string
-                table_content = df.to_string(index=False)
-                
-                # Generate table summary
-                summary = generate_table_summary(df)
-                
-                table_info = {
-                    'index': i + 1,
-                    'page': parsing_report.get('page', 'unknown'),
-                    'shape': f"{df.shape[0]} rows x {df.shape[1]} columns",
-                    'rows': df.shape[0],
-                    'columns': df.shape[1],
-                    'accuracy': round(parsing_report.get('accuracy', 0), 2),
-                    'whitespace': round(parsing_report.get('whitespace', 0), 2),
-                    'content': table_content,
-                    'summary': summary,
-                    'has_headers': detect_headers(df)
-                }
-                
-                tables_info.append(table_info)
-                
-            except Exception as e:
-                error_info = {
-                    'index': i + 1,
-                    'error': f"Failed to process table: {str(e)}"
-                }
-                tables_info.append(error_info)
-        
-        return tables_info
-        
-    except Exception as e:
-        return [{'error': f"Table extraction failed: {str(e)}"}]
-
-def generate_table_summary(df: pd.DataFrame) -> str:
-    """
-    Generate a summary of the table content
-    """
-    try:
-        summary_parts = []
-        
-        # Basic info
-        summary_parts.append(f"Table with {df.shape[0]} rows and {df.shape[1]} columns")
-        
-        # Check for numeric data
-        numeric_cols = df.select_dtypes(include=['number']).columns
-        if len(numeric_cols) > 0:
-            summary_parts.append(f"Contains {len(numeric_cols)} numeric columns")
-        
-        # Check for empty cells
-        total_cells = df.shape[0] * df.shape[1]
-        empty_cells = df.isnull().sum().sum()
-        if empty_cells > 0:
-            empty_percentage = (empty_cells / total_cells) * 100
-            summary_parts.append(f"{empty_percentage:.1f}% of cells are empty")
-        
-        # Try to identify table type based on content
-        table_type = identify_table_type(df)
-        if table_type:
-            summary_parts.append(f"Appears to be: {table_type}")
-        
-        # Sample content (first few non-empty cells)
-        sample_content = get_sample_content(df)
-        if sample_content:
-            summary_parts.append(f"Sample content: {sample_content}")
-        
-        return ". ".join(summary_parts)
-        
-    except Exception as e:
-        return f"Summary generation failed: {str(e)}"
-
-def detect_headers(df: pd.DataFrame) -> bool:
-    """
-    Simple heuristic to detect if table has headers
-    """
-    try:
-        if df.empty:
-            return False
-        
-        # Check if first row is different from others (potential header)
-        first_row = df.iloc[0]
-        
-        # Headers often contain text while data contains numbers
-        first_row_has_text = any(isinstance(val, str) and not val.isdigit() for val in first_row if pd.notna(val))
-        
-        if df.shape[0] > 1:
-            second_row = df.iloc[1]
-            second_row_has_numbers = any(isinstance(val, (int, float)) or (isinstance(val, str) and val.replace('.', '').isdigit()) 
-                                       for val in second_row if pd.notna(val))
+        # Suppress warnings during extraction
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             
-            return first_row_has_text and second_row_has_numbers
-        
-        return first_row_has_text
-        
-    except Exception:
-        return False
-
-def identify_table_type(df: pd.DataFrame) -> str:
-    """
-    Try to identify the type of table based on content
-    """
-    try:
-        if df.empty:
-            return "empty table"
-        
-        # Convert to string for analysis
-        content_str = df.to_string().lower()
-        
-        # Financial table indicators
-        financial_keywords = ['revenue', 'profit', 'cost', 'expense', 'income', 'sales', '$', 'total', 'amount']
-        if any(keyword in content_str for keyword in financial_keywords):
-            return "financial/accounting table"
-        
-        # Statistical table indicators
-        stats_keywords = ['mean', 'average', 'std', 'min', 'max', 'count', 'percentage', '%']
-        if any(keyword in content_str for keyword in stats_keywords):
-            return "statistical table"
-        
-        # Schedule/time table indicators
-        time_keywords = ['date', 'time', 'schedule', 'monday', 'tuesday', 'january', 'february']
-        if any(keyword in content_str for keyword in time_keywords):
-            return "schedule/timeline table"
-        
-        # Contact/directory table indicators
-        contact_keywords = ['name', 'email', 'phone', 'address', 'contact']
-        if any(keyword in content_str for keyword in contact_keywords):
-            return "contact/directory table"
-        
-        # Check if mostly numeric
-        numeric_cells = 0
-        total_cells = 0
-        
-        for col in df.columns:
-            for val in df[col]:
-                if pd.notna(val):
-                    total_cells += 1
-                    if isinstance(val, (int, float)) or (isinstance(val, str) and val.replace('.', '').replace('-', '').isdigit()):
-                        numeric_cells += 1
-        
-        if total_cells > 0 and (numeric_cells / total_cells) > 0.7:
-            return "numerical data table"
-        
-        return "general data table"
-        
-    except Exception:
-        return "unknown table type"
-
-def get_sample_content(df: pd.DataFrame, max_samples: int = 3) -> str:
-    """
-    Get sample content from the table
-    """
-    try:
-        samples = []
-        
-        for i in range(min(df.shape[0], 2)):  # First 2 rows
-            for j in range(min(df.shape[1], 3)):  # First 3 columns
-                val = df.iloc[i, j]
-                if pd.notna(val) and str(val).strip():
-                    val_str = str(val).strip()
-                    if len(val_str) > 0 and val_str not in samples:
-                        samples.append(val_str)
-                        if len(samples) >= max_samples:
-                            break
-            if len(samples) >= max_samples:
-                break
-        
-        return ", ".join(samples) if samples else ""
-        
-    except Exception:
-        return ""
-
-def save_tables_to_csv(pdf_path: str, output_dir: str = "extracted_tables") -> List[str]:
-    """
-    Save extracted tables as CSV files (optional utility)
-    """
-    saved_files = []
-    
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-        tables = camelot.read_pdf(pdf_path, pages='all')
-        pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
-        
-        for i, table in enumerate(tables):
-            try:
-                filename = f"{pdf_name}_table_{i+1}.csv"
-                filepath = os.path.join(output_dir, filename)
-                table.to_csv(filepath)
-                saved_files.append(filepath)
-            except Exception as e:
-                print(f"Failed to save table {i+1}: {str(e)}")
-        
-        return saved_files
+            # Try multiple strategies for research papers
+            strategies = [
+                ("camelot_lattice_research", lambda: _camelot_research_optimized(pdf_path, "lattice")),
+                ("camelot_stream_research", lambda: _camelot_research_optimized(pdf_path, "stream")),
+                ("pdfplumber_research", lambda: _pdfplumber_research_optimized(pdf_path)),
+            ]
+            
+            results = []
+            with ThreadPoolExecutor(max_workers=len(strategies)) as executor:
+                future_to_name = {executor.submit(func): name for name, func in strategies}
+                for future in as_completed(future_to_name):
+                    name = future_to_name[future]
+                    try:
+                        tables, score = future.result()
+                        results.append((name, tables, score))
+                    except Exception as e:
+                        logger.warning(f"Strategy {name} raised exception: {e}")
+            
+            # Select best strategy by highest average score
+            if results:
+                best_name, best_tables, best_score = max(results, key=lambda x: x[2], default=(None, [], 0))
+                logger.info(f"Best strategy: {best_name} with score={best_score:.2f}")
+                
+                # Prepare output
+                output = []
+                for idx, df in enumerate(best_tables, start=1):
+                    output.append({
+                        'page': idx,
+                        'table': df,
+                        'method': best_name,
+                        'score': best_score,
+                        'shape': f"{df.shape[0]} rows × {df.shape[1]} columns" if hasattr(df, 'shape') else "Unknown",
+                        'accuracy': f"{best_score:.1f}%"
+                    })
+                
+                return output if output else [{'info': 'No tables detected'}]
+            else:
+                return [{'info': 'All extraction strategies failed'}]
         
     except Exception as e:
-        print(f"Table saving failed: {str(e)}")
-        return saved_files
+        logger.error(f"Table extraction failed: {str(e)}")
+        return [{'error': f'Extraction failed: {str(e)}'}]
+
+def _camelot_research_optimized(pdf_path, flavor):
+    """Camelot extraction optimized for research papers"""
+    try:
+        # Research paper specific settings
+        if flavor == "lattice":
+            tables = camelot.read_pdf(
+                pdf_path, 
+                flavor='lattice',
+                pages='all',
+                line_scale=40,
+                copy_text=['h'],
+                strip_text='\n',
+                suppress_stdout=True  # Suppress camelot warnings
+            )
+        else:  # stream
+            tables = camelot.read_pdf(
+                pdf_path,
+                flavor='stream',
+                pages='all',
+                row_tol=2,
+                edge_tol=100,
+                suppress_stdout=True  # Suppress camelot warnings
+            )
+        
+        dfs = []
+        scores = []
+        
+        for table in tables:
+            try:
+                df = table.df
+                if not df.empty:
+                    # Clean the dataframe
+                    df = df.replace('', pd.NA).dropna(how='all').dropna(axis=1, how='all')
+                    if not df.empty:
+                        dfs.append(df)
+                        # Calculate confidence score
+                        score = (df.count().sum() / df.size) * 100 if df.size > 0 else 0
+                        scores.append(score)
+            except Exception as e:
+                logger.warning(f"Error processing table: {e}")
+                continue
+        
+        avg_score = sum(scores) / len(scores) if scores else 0
+        logger.info(f"Camelot {flavor}: extracted {len(dfs)} tables, score={avg_score:.2f}")
+        return dfs, avg_score
+        
+    except Exception as e:
+        logger.warning(f"Camelot {flavor} failed: {e}")
+        return [], 0
+
+def _pdfplumber_research_optimized(pdf_path):
+    """PDFPlumber extraction optimized for research papers"""
+    dfs = []
+    scores = []
+    
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                try:
+                    # Research paper optimized settings
+                    tables = page.extract_tables(table_settings={
+                        "vertical_strategy": "lines",
+                        "horizontal_strategy": "lines", 
+                        "snap_tolerance": 3,
+                        "join_tolerance": 3,
+                        "edge_min_length": 3,
+                        "min_words_vertical": 2,
+                        "min_words_horizontal": 1
+                    })
+                    
+                    for table in tables:
+                        if table and len(table) > 1:
+                            try:
+                                # Convert to DataFrame
+                                headers = table[0] if table[0] else [f"Col_{i}" for i in range(len(table[0]))]
+                                data = table[1:] if len(table) > 1 else []
+                                
+                                if data:
+                                    df = pd.DataFrame(data, columns=headers)
+                                    df = df.replace('', pd.NA).dropna(how='all').dropna(axis=1, how='all')
+                                    
+                                    if not df.empty:
+                                        dfs.append(df)
+                                        score = (df.count().sum() / df.size) * 100 if df.size > 0 else 0
+                                        scores.append(score)
+                            except Exception as e:
+                                logger.warning(f"Error converting table to DataFrame: {e}")
+                                continue
+                                
+                except Exception as e:
+                    logger.warning(f"Error extracting tables from page: {e}")
+                    continue
+        
+        avg_score = sum(scores) / len(scores) if scores else 0
+        logger.info(f"PDFPlumber research: extracted {len(dfs)} tables, score={avg_score:.2f}")
+        return dfs, avg_score
+        
+    except Exception as e:
+        logger.warning(f"PDFPlumber research extraction failed: {e}")
+        return [], 0
